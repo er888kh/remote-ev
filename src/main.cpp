@@ -13,7 +13,17 @@ struct event_runner{
     libevdev *dev;
     libevdev_uinput *uidev;
 
-    void init(){
+    bool is_touch;
+    int min_x;
+    int max_x;
+    int min_y;
+    int max_y;
+
+    void init_touch_screen(int _minx, int _maxx, int _miny, int _maxy){
+        min_x = _minx;
+        max_x = _maxx;
+        min_y = _miny;
+        max_y = _maxy;
         /*
         KEY (0001): 008b  009e  00fb  00fc  00fd 
         ABS (0003): 002f  : value 0, min 0, max 9, fuzz 0, flat 0, resolution 0
@@ -27,10 +37,11 @@ struct event_runner{
                     003d  : value 0, min 0, max 1, fuzz 0, flat 0, resolution 0
         LED (0011): 0008 
         */
+        is_touch = true;
         dev = libevdev_new();
         libevdev_set_name(dev, "Tablet touchscreen");
-        //libevdev_enable_property(dev, INPUT_PROP_DIRECT);
-        libevdev_enable_property(dev, INPUT_PROP_POINTER);
+        libevdev_enable_property(dev, INPUT_PROP_DIRECT);
+        //libevdev_enable_property(dev, INPUT_PROP_POINTER);
 
         input_absinfo info;
 
@@ -39,8 +50,9 @@ struct event_runner{
 
         libevdev_enable_event_type(dev, EV_ABS);
 
-        int abs_codes[] = {0x002f, 0x0030, 0x0031, 0x0032, 0x0035, 0x0036, 0x0039, 0x003c, 0x003d};
-        int abs_maxes[] = {9     , 100   , 100   , 1066  , 799   , 1279  , 65535 , 90    , 1     };
+        int abs_codes[] =   {0x002f, 0x0030, 0x0031, 0x0032, 0x0035, 0x0036, 0x0039, 0x003c, 0x003d};
+        int abs_maxes[] =   {9     , 100   , 100   , 1066  , 799   , 1279  , 65535 , 90    , 1     };
+        int resolutions[] = {1     , 1     , 1     , 1     , 1     , 1     , 1     , 1     , 1     };
 
         for(int idx = 0; idx < 9; idx++){
             int i = abs_codes[idx];
@@ -50,7 +62,7 @@ struct event_runner{
             info.maximum = abs_maxes[idx];
             info.fuzz = 0;
             info.flat = 0;
-            info.resolution = 0;
+            info.resolution = resolutions[idx];
             libevdev_enable_event_code(dev, EV_ABS, i, &info);
             //libevdev_set_abs_info(dev, i, &info);
         }
@@ -77,7 +89,11 @@ struct event_runner{
         }
     }
 
-    void init_s_pen(){
+    void init_s_pen(int _minx, int _maxx, int _miny, int _maxy){
+        min_x = _minx;
+        max_x = _maxx;
+        min_y = _miny;
+        max_y = _maxy;
         /*
         name:     "sec_e-pen"
         events:
@@ -93,14 +109,11 @@ struct event_runner{
 
         */
         //Input device ID: bus 0x3 vendor 0x28bd product 0x920 version 0x100
+        is_touch = false;
         dev = libevdev_new();
         libevdev_set_name(dev, "Tablet s-pen");
         libevdev_enable_property(dev, INPUT_PROP_DIRECT);
-        libevdev_set_id_bustype(dev, 0x3);
-        libevdev_set_id_product(dev, 0x920);
-        libevdev_set_id_vendor(dev, 0x28bd);
-        libevdev_set_id_version(dev, 0x100);
-        /*
+    /*
         Event type 0 (EV_SYN)
         Event type 1 (EV_KEY)
             Event code 320 (BTN_TOOL_PEN)
@@ -132,7 +145,7 @@ struct event_runner{
             Max      127
         Event type 4 (EV_MSC)
             Event code 4 (MSC_SCAN)
-        */
+    */
 
         //libevdev_enable_property(dev, INPUT_PROP_POINTER);
 
@@ -164,7 +177,7 @@ struct event_runner{
         int abs_maxes[]       = {10504 , 17022 , 256   , 127   , 127   };
         int abs_mins[]        = {400   , 400   , 0     , -127  , -127  };
         int abs_fuzz[]        = {4     , 4     , 0     , 0     , 0     };
-        int abs_resolution[]  = {153   , 239   , 0     , 0     , 0     };
+        int abs_resolution[]  = {1     , 1     , 0     , 0     , 0     };
 
         for(int idx = 0; idx < 5; idx++){
             int i = abs_codes[idx];
@@ -206,6 +219,26 @@ struct event_runner{
     }
 
     void run_event(unsigned int type, unsigned int code, int value){
+        //This is the transformation I should use for how I use my device
+        if(is_touch){
+            if(type == EV_ABS && code == ABS_MT_POSITION_X){
+                code = ABS_MT_POSITION_Y;
+                value = min_x + (max_x - min_x - (value - min_x));
+                value = (int)(((double)(value - min_x)/((double)(max_x - min_x))) * (max_y - min_y) + min_y);
+            } else if(type == EV_ABS && code == ABS_MT_POSITION_Y){
+                code = ABS_MT_POSITION_X;
+                value = (int)(((double)(value - min_y)/((double)(max_y - min_y))) * (max_x - min_x) + min_x);
+            }
+        } else {
+            if(type == EV_ABS && code == ABS_X){
+                code = ABS_Y;
+                value = min_x + (max_x - min_x - (value - min_x));
+                value = (int)(((double)(value - min_x)/((double)(max_x - min_x))) * (max_y - min_y) + min_y);
+            } else if(type == EV_ABS && code == ABS_Y){
+                code = ABS_X;
+                value = (int)(((double)(value - min_y)/((double)(max_y - min_y))) * (max_x - min_x) + min_x);
+            }
+        }
         int err = libevdev_uinput_write_event(uidev, type, code, value);
         if(err != 0) {
             printf("Got write error %d", err);
@@ -216,12 +249,10 @@ struct event_runner{
 };
 
 int main(){
-    const int MAX_X = 10804;
-    const int MIN_X = 100;
-    const int MAX_Y = 17322;
-    const int MIN_Y = 100;
     event_runner er;
-    er.init_s_pen();
+    //for GTN5100 these values are OK
+    er.init_touch_screen(0, 799, 0, 1279);
+    //er.init_s_pen(100, 10804, 100, 17322);
     printf("Done initing\n");
     uint32_t vals[3];
     int64_t eid = 0;
@@ -230,24 +261,7 @@ int main(){
         if(ret != 3){
             break;
         }
-        if(vals[0] == EV_ABS && vals[1] == ABS_X){
-            vals[1] = ABS_Y;
-            vals[2] = MIN_X + (MAX_X - MIN_X - (vals[2] - MIN_X));
-            vals[2] = (int)(((double)(vals[2] - MIN_X)/((double)(MAX_X - MIN_X))) * (MAX_Y - MIN_Y) + MIN_Y);
-        } else if(vals[0] == EV_ABS && vals[1] == ABS_Y){
-            vals[1] = ABS_X;
-            vals[2] = (int)(((double)(vals[2] - MIN_Y)/((double)(MAX_Y - MIN_Y))) * (MAX_X - MIN_X) + MIN_X);
-        }
         er.run_event(vals[0], vals[1], vals[2]);
-        //printf("%s\n", libevdev_event_value_get_name(vals[0], vals[1], vals[2]));
-        /*
-        printf("Event ran %ld\t: %s %s %d\n",
-            eid++,
-            libevdev_event_type_get_name(vals[0]),
-            libevdev_event_code_get_name(vals[0], vals[1]),
-            vals[2]
-        );
-        */
     }
     er.destroy();
     return 0;
