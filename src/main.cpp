@@ -9,6 +9,8 @@
 #include <libevdev-1.0/libevdev/libevdev-uinput.h>
 #include <linux/input-event-codes.h>
 
+#include <string.h>
+
 struct event_runner{
     libevdev *dev;
     libevdev_uinput *uidev;
@@ -248,11 +250,16 @@ struct event_runner{
     }
 };
 
-int main(){
+int main(int argc, const char** argv){
     event_runner er;
     //for GTN5100 these values are OK
-    er.init_touch_screen(0, 799, 0, 1279);
-    //er.init_s_pen(100, 10804, 100, 17322);
+    if(argc == 2 && strcmp(argv[1], "touch") == 0){
+        printf("Starting in touchscreen mode\n");
+        er.init_touch_screen(0, 799, 0, 1279);
+    } else {
+        printf("Starting in s-pen mode\n");
+    	er.init_s_pen(100, 10804, 100, 17322);
+    }
     printf("Done initing\n");
     uint32_t vals[3];
     int64_t eid = 0;
